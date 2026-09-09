@@ -56,3 +56,14 @@ src/
 - 이동 동선: 실시간 카카오 지도 API 대신 근사 정렬(같은 권역 우선순위)로 단순화
 - 날씨: 기상청 API 대신 mock 값
 - API 명세서/ERD 미확정 상태이므로 백엔드팀 작업 완료 후 위 "교체 지점"을 기준으로 연동 작업 진행 권장
+
+  ## 트러블슈팅 — 로그인 콜백 404 (Vercel)
+
+| 항목 | 내용 |
+|---|---|
+| 증상 | 소셜 로그인 후 `https://meomulgyeong-frontend-one.vercel.app/oauth/callback?accessToken=...`로 리다이렉트되지만 **404 NOT_FOUND**(Vercel Edge, `icn1::` 트레이스 ID) 페이지가 뜸 |
+| 원인 | 백엔드 OAuth 로그인 자체는 정상 동작(응답에 `accessToken`이 정상적으로 붙어서 돌아옴). 문제는 백엔드가 `window.location.href` 방식의 **풀 페이지 리다이렉트**로 `/oauth/callback`을 호출하는데, 이는 React Router가 처리하는 클라이언트 사이드 라우팅이 아니라 **브라우저가 서버(Vercel)에 실제 파일을 요청하는 방식**임. Vercel은 정적 파일로 `index.html`만 갖고 있고 `/oauth/callback` 경로에 대응하는 파일이 없어 404를 반환함. (React Router의 `<Link>`/`navigate()`로 이동할 때는 발생하지 않고, 새로고침·외부 리다이렉트·직접 URL 접근처럼 서버에 새 요청이 갈 때만 발생) |
+| 해결 | 저장소 루트에 `vercel.json` 추가 — 모든 경로 요청을 `index.html`로 rewrite해서 React Router가 라우팅을 이어받도록 처리 |
+| 적용 코드 | ```json\n{\n  "rewrites": [\n    { "source": "/(.*)", "destination": "/index.html" }\n  ]\n}\n``` |
+| 부수 효과 | `/oauth/callback`뿐 아니라 `/onboarding`, `/home` 등 다른 클라이언트 라우트를 새로고침하거나 URL로 직접 접근할 때 발생하던 동일한 404도 함께 해결됨 |
+| 상태 | ✅ 해결 (vercel.json 커밋 후 재배포 확인 필요) |
