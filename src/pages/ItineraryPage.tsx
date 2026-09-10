@@ -43,8 +43,8 @@ export default function ItineraryPage() {
   const region = regionId ? REGION_MAP[regionId] : undefined;
   const nights = Number(params.get("nights") ?? 1);
   const companionParam = params.get("companion") ?? "SOLO";
-  // TODO: 백엔드 실제 스펙 확인 필요 — backendRegionId 파라미터가 항상 전달되는지 확인
   const backendRegionId = Number(params.get("backendRegionId") ?? 0);
+  const preferenceTags = (params.get("tags") ?? "").split(",").filter(Boolean);
 
   const [itin, setItin] = useState<Itinerary | null>(null);
   const [backendItineraryId, setBackendItineraryId] = useState<number | null>(null);
@@ -75,6 +75,7 @@ export default function ItineraryPage() {
           companionType: toBackendCompanion(companionParam),
           nights,
           startDate: new Date().toISOString().split("T")[0], // 오늘 날짜 기본값
+          preferenceTags,
         });
 
     load
@@ -140,37 +141,8 @@ export default function ItineraryPage() {
     setSwapping(itemId);
     try {
       const res = await replaceItineraryItem(backendItineraryId, Number(itemId));
-      // TODO: 백엔드 실제 스펙 확인 필요 — 응답이 단일 아이템인지 전체 일정인지에 따라 분기
-      if (res.itinerary) {
-        setItin(toFrontendItinerary(res.itinerary, regionId!));
-      } else if (res.item) {
-        setItin((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            days: prev.days.map((d) =>
-              d.day !== activeDay
-                ? d
-                : {
-                    ...d,
-                    items: d.items.map((it) =>
-                      it.id === itemId
-                        ? {
-                            id: String(res.item!.itemId),
-                            regionId: regionId!,
-                            name: res.item!.placeName,
-                            category:
-                              ({ TOURIST_SPOT: "attraction", FESTIVAL: "attraction", RESTAURANT: "food", EXPERIENCE: "experience" } as Record<string, "attraction" | "food" | "experience" | "stay">)[res.item!.itemType] ?? "stay",
-                            time: it.time,
-                            description: res.item!.placeDescription,
-                          }
-                        : it
-                    ),
-                  }
-            ),
-          };
-        });
-      }
+      const updated = await getItinerary(res.itineraryId);
+      setItin(toFrontendItinerary(updated, regionId!));
     } catch {
       // 교체 실패는 UI에서 조용히 처리 — 아이템이 그대로 남는다
     } finally {
@@ -212,8 +184,9 @@ export default function ItineraryPage() {
     setCompleting(true);
     try {
       const res = await completeItinerary(backendItineraryId, {
-        visitors,
-        visitedDays: stayDays,
+        stayHours: stayDays * 24,
+        partySize: visitors,
+        totalSpent: 0,
       });
       const trip = toTripCompletion(res, regionId!, stayDays, visitors);
       completeTrip(trip);

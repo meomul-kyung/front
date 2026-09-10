@@ -399,7 +399,7 @@ export default function HomePage() {
                 reason={rec.recommendationReason}
                 onClick={() =>
                   navigate(
-                    `/itinerary/${toDisplayRegion(rec).id}?nights=${nights}&companion=${companionCode}&backendRegionId=${rec.regionId}`
+                    `/itinerary/${toDisplayRegion(rec).id}?nights=${nights}&companion=${companionCode}&backendRegionId=${rec.regionId}&tags=${encodeURIComponent(tagCodes.join(","))}`
                   )
                 }
               />
