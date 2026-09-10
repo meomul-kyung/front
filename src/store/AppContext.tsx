@@ -8,7 +8,8 @@ import {
   type MeResponse,
 } from "../lib/authApi";
 import { getAccessToken } from "../lib/apiClient";
-import { listMyItineraries, resolveFrontendRegionId, toFrontendItinerary } from "../lib/itineraryApi";
+import { listBookmarkedItineraries, resolveFrontendRegionId, toFrontendItinerary } from "../lib/itineraryApi";
+import { getCompletedTrips, getMyStamps } from "../lib/myPageApi";
 
 const STORAGE_KEY = "meomulgyeong_state_v1";
 
@@ -109,18 +110,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setUser((u) => toUserProfile(me, u));
       setIsLoggedIn(true);
       setHasOnboarded(me.onboardingCompleted);
-      // 서버 북마크 목록을 로컬 상태에 동기화한다 — 실패해도 로컬 캐시를 유지한다.
-      // TODO: 백엔드 실제 스펙 확인 필요 — listMyItineraries 엔드포인트가 북마크 목록을 반환하는지 확인
-      listMyItineraries()
+      // 서버의 북마크 목록을 로컬 상태에 동기화한다 — 실패해도 로컬 캐시를 유지한다.
+      listBookmarkedItineraries()
         .then((serverItins) => {
           const mapped = serverItins.map((res) =>
-            toFrontendItinerary(res, resolveFrontendRegionId(res.regionName, res.regionId))
+            toFrontendItinerary(res, resolveFrontendRegionId(res.region.regionName, res.region.regionId))
           );
           setSavedItineraries((prev) => {
             const serverIds = new Set(mapped.map((i) => i.id));
             const localOnly = prev.filter((i) => !serverIds.has(i.id));
             return [...mapped.map((i) => ({ ...i, savedAt: i.savedAt ?? new Date().toISOString() })), ...localOnly];
           });
+        })
+        .catch(() => {/* 서버 동기화 실패 — 로컬 캐시 유지 */});
+
+      // 완료 여행과 스탬프도 서버를 기준으로 갱신한다. 각 요청은 독립적이라
+      // 하나가 실패해도 기존 화면 상태를 보존한다.
+      getMyStamps()
+        .then(({ stamps }) => {
+          setUser((prev) => ({
+            ...prev,
+            stamps: stamps
+              .filter((stamp) => stamp.collected)
+              .map((stamp) => resolveFrontendRegionId(stamp.regionName, stamp.regionId)),
+          }));
+        })
+        .catch(() => {/* 서버 동기화 실패 — 로컬 캐시 유지 */});
+
+      getCompletedTrips()
+        .then(({ completedTrips }) => {
+          setUser((prev) => ({
+            ...prev,
+            trips: completedTrips.map((trip) => ({
+              itineraryId: String(trip.itineraryId),
+              regionId: resolveFrontendRegionId(trip.region.regionName, trip.region.regionId),
+              visitedDays: trip.nights + 1,
+              visitors: trip.partySize,
+              completedAt: trip.completedAt,
+            })),
+          }));
         })
         .catch(() => {/* 서버 동기화 실패 — 로컬 캐시 유지 */});
     } catch {

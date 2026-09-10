@@ -20,62 +20,64 @@ export type BackendItemType =
 export type BackendCompanionType = "SOLO" | "COUPLE" | "FRIENDS" | "FAMILY";
 
 export interface CreateItineraryRequest {
-  // TODO: 백엔드 실제 스펙 확인 필요 — regionId 타입(정수 vs 문자열), 필드명 확인
   regionId: number;
   companionType: BackendCompanionType;
   nights: number;
-  // TODO: 백엔드 실제 스펙 확인 필요 — startDate 필수 여부, 생략 시 오늘 날짜 기본값 여부
   startDate: string; // "YYYY-MM-DD"
+  preferenceTags: string[];
 }
 
 export interface ItineraryItemResponse {
   itemId: number;
-  sequenceNo: number;
-  itemType: BackendItemType;
-  placeName: string;
-  placeDescription: string;
-  // TODO: 백엔드 실제 스펙 확인 필요 — 표시 시간(displayTime/startTime) 필드 반환 여부
+  sequence: number;
+  type: BackendItemType;
+  title: string;
+  reason: string | null;
 }
 
 export interface ItineraryDayResponse {
-  day: number;
+  dayNumber: number;
   date: string; // "YYYY-MM-DD"
+  weather: {
+    condition: string | null;
+    minimumTemperature: number | null;
+    maximumTemperature: number | null;
+  };
   items: ItineraryItemResponse[];
 }
 
 export interface ItineraryResponse {
   itineraryId: number;
-  regionId: number;
-  regionName: string; // TODO: 백엔드 실제 스펙 확인 필요 — regionName 포함 여부
+  region: { regionId: number; regionName: string };
   companionType: BackendCompanionType;
   nights: number;
   startDate: string;
-  // TODO: 백엔드 실제 스펙 확인 필요 — status enum 값("ACTIVE"/"COMPLETED" 등)
   status: string;
+  bookmarked: boolean;
   days: ItineraryDayResponse[];
-  bookmarked?: boolean; // TODO: 백엔드 실제 스펙 확인 필요 — 북마크 여부 포함 여부
 }
 
 export interface ReplaceItemRequest {
-  // TODO: 백엔드 실제 스펙 확인 필요 — 교체 조건(제외할 장소ID 등) 있는지 확인
+  excludePreviouslyRecommended?: boolean;
 }
 
 export interface ReplaceItemResponse {
-  // TODO: 백엔드 실제 스펙 확인 필요 — 단일 아이템 반환인지 전체 일정 반환인지 확인
-  item?: ItineraryItemResponse;
-  itinerary?: ItineraryResponse;
+  itineraryId: number;
+  replacedItemId: number;
+  newItem: ItineraryItemResponse;
+  generationVersion: number;
 }
 
 export interface CompleteItineraryRequest {
-  // TODO: 백엔드 실제 스펙 확인 필요 — 실제 필드명(visitedDays/stayDays 등) 확인
-  visitors: number;
-  visitedDays: number;
+  stayHours: number;
+  partySize: number;
+  totalSpent: number;
 }
 
 export interface CompleteItineraryResponse {
-  // TODO: 백엔드 실제 스펙 확인 필요 — 응답 필드 확인
+  completedTripId: number;
   itineraryId: number;
-  regionId: number;
+  region: { regionId: number; regionName: string };
   completedAt: string;
 }
 
@@ -125,19 +127,19 @@ function toFrontendItem(item: ItineraryItemResponse, regionId: string): PlaceIte
   return {
     id: String(item.itemId),
     regionId,
-    name: item.placeName,
-    category: ITEM_CATEGORY_MAP[item.itemType] ?? "stay",
-    time: SEQUENCE_TIMES[item.sequenceNo] ?? "09:00",
-    description: item.placeDescription,
+    name: item.title,
+    category: ITEM_CATEGORY_MAP[item.type] ?? "stay",
+    time: SEQUENCE_TIMES[item.sequence] ?? "09:00",
+    description: item.reason ?? "",
   };
 }
 
 function toFrontendDay(day: ItineraryDayResponse, regionId: string): DayPlan {
   return {
-    day: day.day,
+    day: day.dayNumber,
     date: day.date,
     // TODO: 백엔드 실제 스펙 확인 필요 — 날씨 정보 제공 여부. 현재는 placeholder
-    weather: { temp: 23, condition: "맑음" },
+    weather: { temp: day.weather.maximumTemperature ?? 23, condition: day.weather.condition ?? "정보 없음" },
     items: day.items.map((it) => toFrontendItem(it, regionId)),
   };
 }
@@ -195,7 +197,7 @@ export async function replaceItineraryItem(
   req: ReplaceItemRequest = {}
 ): Promise<ReplaceItemResponse> {
   return apiFetch<ReplaceItemResponse>(`/api/itineraries/${itineraryId}/items/${itemId}/replace`, {
-    method: "PATCH",
+    method: "POST",
     body: req,
   });
 }
@@ -212,7 +214,7 @@ export async function regenerateFullItinerary(itineraryId: number): Promise<Itin
 // TODO: 백엔드 실제 스펙 확인 필요 — 엔드포인트(bookmark vs save), 응답 형식 확인
 export async function bookmarkItinerary(itineraryId: number): Promise<void> {
   await apiFetch<null>(`/api/itineraries/${itineraryId}/bookmark`, {
-    method: "POST",
+    method: "PUT",
   });
 }
 
@@ -228,16 +230,18 @@ export async function completeItinerary(
   itineraryId: number,
   req: CompleteItineraryRequest
 ): Promise<CompleteItineraryResponse> {
-  return apiFetch<CompleteItineraryResponse>(`/api/itineraries/${itineraryId}/complete`, {
+  return apiFetch<CompleteItineraryResponse>(`/api/itineraries/${itineraryId}/completion`, {
     method: "POST",
     body: req,
   });
 }
 
-/** 8. 내 일정 목록 조회 (저장된 일정) */
-// TODO: 백엔드 실제 스펙 확인 필요 — 엔드포인트 및 필터 파라미터(bookmarked 등) 확인
-export async function listMyItineraries(): Promise<ItineraryResponse[]> {
-  return apiFetch<ItineraryResponse[]>("/api/itineraries");
+/** 8. 내 저장 일정 목록 조회. 서버는 목록 요약만 반환하므로 상세를 이어서 조회한다. */
+export async function listBookmarkedItineraries(): Promise<ItineraryResponse[]> {
+  const bookmarks = await apiFetch<{ itineraries: { itineraryId: number }[] }>(
+    "/api/users/me/bookmarked-itineraries",
+  );
+  return Promise.all(bookmarks.itineraries.map(({ itineraryId }) => getItinerary(itineraryId)));
 }
 
 /** 완료 응답으로 TripCompletion 객체 생성 */
